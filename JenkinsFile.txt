@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    environment {
+        ZEPHYR_API_URL = 'https://your-zephyr-api'
+        ZEPHYR_TOKEN = credentials('zephyr-token')
+        WEBEX_WEBHOOK = credentials('webex-webhook')
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git 'https://github.com/your-repo.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install'
+           
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh 'npx Demo test --reporter=json'
+            }
+        }
+
+        stage('Publish Report') {
+            steps {
+                publishHTML([
+                    reportDir: 'Selenium-report',
+                    reportFiles: 'index.html',
+                    reportName: 'QA Report'
+                ])
+            }
+        }
+
+        stage('Update Zephyr') {
+            steps {
+                script {
+                    def results = readFile('test-results.json')
+
+                    sh """
+                    curl -X POST ${ZEPHYR_API_URL}/testexecutions \
+                    -H 'Authorization: Bearer ${ZEPHYR_TOKEN}' \
+                    -H 'Content-Type: application/json' \
+                    -d '${results}'
+                    """
+                }
+            }
+        }
+
+        stage('Send Webex Notification') {
+            steps {
+                script {
+                    def status = currentBuild.currentResult
+
+                    sh """
+                    curl -X POST ${WEBEX_WEBHOOK} \
+                    -H 'Content-Type: application/json' \
+                    -d '{
+                        "text": "QA Pipeline Status: ${status}"
+                    }'
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo 'Pipeline Failed ❌'
+        }
+        success {
+            echo 'Pipeline Passed ✅'
+        }
+    }
+}
